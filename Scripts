@@ -1,0 +1,46 @@
+db.initial_load_1.createIndex({f:1})
+db.initial_load_1.createIndex({_2:1})
+ct=0
+ctf=0
+db.initial_load_1.find().forEach(function(doc) {
+        data = db.initial_load_1.find({
+            f:{$ne:doc.f},
+            _2: doc.f
+            //"members": doc.matches
+        }).toArray();
+
+      if (Object.bsonsize(data)> 5){
+        ct=ct+1;
+        db.initial_load_1.remove({f:doc.f})
+
+        }
+        else{
+        ctf=ctf+1;
+        }
+    }
+)
+db.initial_load_1.aggregate([{$project:{members:["$f"],_2:1}},{$project:{allValues: { $setUnion: [ "$members", "$_2" ] }}},{ "$out": "alt_truth" }])
+
+
+
+
+ct=0
+ctf=0
+db.truth.find({},{members:1,_id:0}).forEach(function(doc){
+ data=db.alt_truth.findOne({
+ allValues:{$all:doc.members}
+ },{allValues:1,_id:0});
+if (Object.bsonsize(data)> 5 ){
+   if(doc.members.length==data.allValues.length)
+{
+   ct=ct+1;
+}
+  }
+else{
+  ctf=ctf+1;
+  db.notfound.insert(doc)
+}
+}
+)
+
+db.notfound.find({members:{$exists:true},$where:"this.members.length>1"})
