@@ -1,8 +1,9 @@
 import binascii
+import collections
 import re
+import numpy as np
 from collections import Counter
 from pyspark.mllib.linalg import SparseVector
-import collections
 from pyspark import SparkConf,SparkContext
 from pyspark.sql import SQLContext
 from  pyspark.mllib.random import RandomRDDs
@@ -60,24 +61,21 @@ def ngrams_min_hash(line,tuple_size,coeffs,num_bands):
 
 
 
-def gen_hash_coeffs_1(num_buckets,num_bigrams,num_bands,seed):
-    #coeff=[[] for j in xrange(num_bands)]
-    coeff=[None]*num_bands
-    r=num_buckets/num_bands
-    #arr=[[] for j in xrange(r)]
-    arr=[None]*r
+def gen_hash_coeffs_1(num_buckets,num_bigrams,r,seed):
+    '''
+    Generate num_buckets hash functions
+    '''
+    coeff=[None]*r
+    bands=num_buckets/r
+    arr=[None]*bands
     for i in xrange(num_buckets):
-        #nRDD= RandomRDDs.normalRDD(sc, num_bigrams, seed=seed+i).map(lambda val: str(-1) if val < 0 else str(1)).collect()
-        #nRDD= RandomRDDs.uniformRDD(sc, num_bigrams,0,seed+i).map(lambda val: str(-1) if val <= 0.5 else str(1)).collect()
-        #Str to float
         nRDD= RandomRDDs.uniformRDD(sc, num_bigrams,0,seed+i).map(lambda val: float(-1) if val <= 0.5 else float(1)).collect()
         j=nRDD
-        idx= i%(r)
-
+        idx= i%(bands)
         arr[idx]=(idx+1,j)
-        if i%r ==r-1:
-            coeff[i/r]=arr
-            arr=[None]*r
+        if i%bands ==bands-1:
+            coeff[i/bands]=arr
+            arr=[None]*bands
     return coeff
 
 
@@ -86,18 +84,14 @@ def LSH(line,coeff):
     r=(coeff.value)[line[1]]
     hash_str=''
     for i in xrange(len(r)):
-        #hash_str=hash_str+str(1 if line[2].dot(r[i][1]).sum() > 0 else 0)
-        #np.array(x.toArray()).dot(y)
         ##improved- This is best
+        '''
+        return the sign of the dot product of the vector and the random hyperplane
+        '''
         hash_str=hash_str+str(1 if np.array((line[2].toArray())).dot(np.array(r[i][1])).sum() > 0 else 0)
-        ##Next try- This is bad
-        ##hash_str=hash_str+str(1 if sum([a*b for a,b in zip(line[2].toArray(),r[i][1])]) > 0 else 0)
-    #return hash_str,line[0]
     return hash_str,(line[0],str(line[2]))
 
 def load_source_data():
-    #pipeline = "{'$project': {'_id': 1,'aname':1,'bname':1,'cname':1,'x':1,'y':1,'z':1}}"
-    #pipeline="{'$unwind': '$sources'},{'$project':{'_id':0,'id':'$sources._id','val':{'$toLower':{'$concat':['$sources.first_name','$sources.middle_name','$sources.last_name',{'$substr':['$sources.gender',0,1]},'$sources.dob','$sources.address.street','$sources.address.city','$sources.address.state','$sources.address.zip','$sources.phone','$sources.email']}}}},{'$limit':1000}"
     pipeline='[{"$unwind": "$sources"},{"$project":{"_id":0,"id":"$sources._id","val":{"$toLower":{"$concat":["$sources.first_name","$sources.middle_name","$sources.last_name",{"$substr":["$sources.gender",0,1]},"$sources.dob","$sources.address.street","$sources.address.city","$sources.address.state","$sources.address.zip","$sources.phone","$sources.email"]}}}}]'
 
     source_df=spark.read.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://ec2-54-200-163-164.us-west-2.compute.amazonaws.com:27017/").option("database","single").option("collection","master").option("pipeline", pipeline).option("readPreference.name","secondaryPreferred").load()
@@ -105,8 +99,6 @@ def load_source_data():
     return source_df
 
 def cosine_pre_process(line):
-    import numpy as np
-
     length_matches=len(line[1])
     i=0
     j=0
@@ -125,23 +117,20 @@ def cosine_pre_process(line):
                  yield (line[1][i][0],line[1][j][0]),1
 
 
-def full_load_lsh(sc,spark,nbands,nbuckets,seed):
+def full_load_lsh(sc,spark,r,nbuckets,seed):
 
-    num_bands=nbands
+    num_rows=r
     num_buckets=nbuckets
-     #num_bands=5
-     #num_buckets=10
-    ##seed=1000
-    coeffs=sc.broadcast(gen_hash_coeffs_1(num_buckets,1296,num_bands,seed))
+    
+    coeffs=sc.broadcast(gen_hash_coeffs_1(num_buckets,1296,num_rows,seed))
     source_df=load_source_data();
-     #new_df=source_df.drop("_id")
     source_rdd=source_df.rdd.map(tuple)
-     #source_rdd.partitionBy()
-    #source_rdd=source_rdd_1.repartition(64)
-     ###Latest
-    doc_vector=source_rdd.flatMap(lambda line: ngrams_min_hash(line,2,coeffs,num_bands)).map(lambda line:LSH(line,coeffs)).combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value).filter(lambda (x,y): len(y)>= 2)
+    doc_vector=source_rdd.flatMap(lambda line: ngrams_min_hash(line,2,coeffs,num_rows)).map(lambda line:LSH(line,coeffs)).combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value).filter(lambda (x,y): len(y)>= 2)
     doc_vector.cache()
-     ##call cosine similarity function here
+    '''
+    call cosine similarity function here for each matching pair.
+    This portion can be further optimized by deduplicating first
+    '''
     x=doc_vector.flatMap(lambda line: cosine_pre_process(line)).reduceByKey(lambda x,y: x)
     write_df=spark.createDataFrame(x, ["f"])
     write_df.write.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://ec2-54-200-163-164.us-west-2.compute.amazonaws.com:27017/").option("database","sparkt").option("collection","initial_load").mode("append").save()
