@@ -132,6 +132,7 @@ def full_load_lsh(sc,spark,r,nbuckets,seed):
     Apply hash functions to each document
     and then calculate LSH 
     followed by grouping by hash values
+    and filtering keys with no matches
     '''
     doc_vector=source_rdd.flatMap(lambda line: ngrams_min_hash(line,2,coeffs,num_rows)).map(lambda line:LSH(line,coeffs)).combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value).filter(lambda (x,y): len(y)>= 2)
     doc_vector.cache()
@@ -139,7 +140,7 @@ def full_load_lsh(sc,spark,r,nbuckets,seed):
     call cosine similarity function here for each matching pair.
     This portion can be further optimized by deduplicating first
     '''
-    x=doc_vector.flatMap(lambda line: cosine_pre_process_new(line)).distinct().combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value)
+    x=doc_vector.flatMap(lambda line: cosine_pre_process(line)).distinct().combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value)
     '''
     write back to mongo
     '''
