@@ -94,7 +94,7 @@ def LSH(line,coeff):
 def load_source_data():
     pipeline='[{"$unwind": "$sources"},{"$project":{"_id":0,"id":"$sources._id","val":{"$toLower":{"$concat":["$sources.first_name","$sources.middle_name","$sources.last_name",{"$substr":["$sources.gender",0,1]},"$sources.dob","$sources.address.street","$sources.address.city","$sources.address.state","$sources.address.zip","$sources.phone","$sources.email"]}}}}]'
 
-    source_df=spark.read.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://ec2-54-200-163-164.us-west-2.compute.amazonaws.com:27017/").option("database","single").option("collection","master").option("pipeline", pipeline).option("readPreference.name","secondaryPreferred").load()
+    source_df=spark.read.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://ec2-54-200-163-164.us-west-2.compute.amazonaws.com:27017/").option("database","single").option("collection","master").option("pipeline", pipeline).option("partitioner", "MongoSamplePartitioner").option("partitionSizeMB","1").option("readPreference.name","secondaryPreferred").load()
 
     return source_df
 
