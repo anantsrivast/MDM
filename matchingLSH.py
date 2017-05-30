@@ -53,7 +53,7 @@ def ngrams_min_hash(line,tuple_size,coeffs,r):
 
     arr=[]
     '''
-    Yield a sparse vector for each band
+    Yield a sparse vector for each row
     '''
     for i in xrange(r):
 
@@ -128,6 +128,11 @@ def full_load_lsh(sc,spark,r,nbuckets,seed):
     coeffs=sc.broadcast(gen_hash_coeffs_1(num_buckets,1296,num_rows,seed))
     source_df=load_source_data();
     source_rdd=source_df.rdd.map(tuple)
+    '''
+    Apply hash functions to each document
+    and then calculate LSH 
+    followed by grouping by hash values
+    '''
     doc_vector=source_rdd.flatMap(lambda line: ngrams_min_hash(line,2,coeffs,num_rows)).map(lambda line:LSH(line,coeffs)).combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value).filter(lambda (x,y): len(y)>= 2)
     doc_vector.cache()
     '''
@@ -135,6 +140,9 @@ def full_load_lsh(sc,spark,r,nbuckets,seed):
     This portion can be further optimized by deduplicating first
     '''
     x=doc_vector.flatMap(lambda line: cosine_pre_process(line)).reduceByKey(lambda x,y: x)
+    '''
+    write back to mongo
+    '''
     write_df=spark.createDataFrame(x, ["f"])
     write_df.write.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://ec2-54-200-163-164.us-west-2.compute.amazonaws.com:27017/").option("database","sparkt").option("collection","initial_load").mode("append").save()
 
