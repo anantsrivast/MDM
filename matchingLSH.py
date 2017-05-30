@@ -8,10 +8,11 @@ from pyspark.sql import SQLContext
 from  pyspark.mllib.random import RandomRDDs
 
 def bigram_map():
-
+    '''
+    A 1296 dimension map
+    '''
     a=['0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z']
     c=0
-    #Changed dict to ordered
     d=collections.OrderedDict()
     for i in a:
         for j in a:
@@ -21,7 +22,9 @@ def bigram_map():
     return d
 
 def ngrams_min_hash(line,tuple_size,coeffs,num_bands):
-    #print line
+    '''
+    Formatting input
+    '''
     line_new=','.join(x if x!= None else '' for x in line )
     line_new=''.join(line_new)
 
@@ -31,47 +34,28 @@ def ngrams_min_hash(line,tuple_size,coeffs,num_bands):
 
     name_temp=re.sub(r'\s+', '', words[1])
     name=re.sub("[^\w]",'',name_temp).lower()
+    '''
+    Create Bigrams
+    '''
     for i in xrange((len(name)-tuple_size+1)):
         j=1
         tempGram=""
         while(j<tuple_size):
             tempGram=tempGram+name[i+j]
             j+=1
-        #print dict_bigram[name[i]+tempGram]
+        
         arr.append(dict_bigram[name[i]+tempGram])
-
+    '''
+    Sparse Vector
+    '''
     sv=SparseVector(1296,dict(Counter(arr)))
 
     arr=[]
+    '''
+    Yield a sparse vector for each band
+    '''
     for i in xrange(num_bands):
 
-        yield words[0],i,sv
-
-
-def ngrams_min_hash_file(line,tuple_size,coeffs,num_bands):
-
-  words=line.split(",",1)
-
-  arr=[]
-  dict_bigram=bigram_map()
-
-  name_temp=re.sub(r'\s+', '', words[1])
-  name=re.sub("[^\w]",'',name_temp).lower()
-  print name
-  for i in xrange((len(name)-tuple_size+1)):
-    j=1
-    tempGram=""
-    while(j<tuple_size):
-        tempGram=tempGram+name[i+j]
-        j+=1
-
-
-    arr.append(dict_bigram[name[i]+tempGram])
-
-  sv=SparseVector(1296,dict(Counter(arr)))
-  arr=[]
-  print sv
-  for i in xrange(num_bands):
         yield words[0],i,sv
 
 
