@@ -114,7 +114,10 @@ def cosine_pre_process(line):
             dotp=sf.dot(ss)
             rss=np.sqrt(sum(np.square(sf.values)))*np.sqrt(sum(np.square(ss.values)))
             if dotp/rss > 0.75:
-                 yield (line[1][i][0],line[1][j][0]),1
+                if line[1][i][0] < line[1][j][0]:
+                        yield line[1][i][0],line[1][j][0]
+                else:
+                        yield line[1][j][0],line[1][i][0]
 
 
 def full_load_lsh(sc,spark,r,nbuckets,seed):
