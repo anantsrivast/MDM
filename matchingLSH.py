@@ -139,7 +139,7 @@ def full_load_lsh(sc,spark,r,nbuckets,seed):
     call cosine similarity function here for each matching pair.
     This portion can be further optimized by deduplicating first
     '''
-    x=doc_vector.flatMap(lambda line: cosine_pre_process(line)).reduceByKey(lambda x,y: x)
+    x=doc_vector.flatMap(lambda line: cosine_pre_process_new(line)).distinct().combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value)
     '''
     write back to mongo
     '''
