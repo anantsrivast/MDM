@@ -22,7 +22,7 @@ def bigram_map():
             c+=1
     return d
 
-def ngrams_min_hash(line,tuple_size,coeffs,num_bands):
+def ngrams_min_hash(line,tuple_size,coeffs,r):
     '''
     Formatting input
     '''
@@ -55,7 +55,7 @@ def ngrams_min_hash(line,tuple_size,coeffs,num_bands):
     '''
     Yield a sparse vector for each band
     '''
-    for i in xrange(num_bands):
+    for i in xrange(r):
 
         yield words[0],i,sv
 
