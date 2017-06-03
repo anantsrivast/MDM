@@ -22,7 +22,7 @@ def bigram_map():
             c+=1
     return d
 
-def ngrams_min_hash(line,tuple_size,coeffs,r):
+def ngrams_min_hash(line,tuple_size,r,coeff):
     '''
     Formatting input
     '''
@@ -49,52 +49,43 @@ def ngrams_min_hash(line,tuple_size,coeffs,r):
     '''
     Sparse Vector
     '''
-    sv=SparseVector(1296,dict(Counter(arr)))
+    #sv=SparseVector(1296,dict(Counter(arr)))
 
-    arr=[]
-    '''
-    Yield a sparse vector for each row
-    '''
-    for i in xrange(r):
+    xv=SparseVector(1296,dict(Counter(arr)))
+    sv=xv.toArray()
+    i=0
+    coeff1=coeff.value
+    hash_arr=[]  
+    hash_str=""
+    hash_str1=""
+    bnd=0
+    while(i< len(coeff1)):
+      hash_str=hash_str+str(1 if np.dot((coeff1[i]),sv) > 0 else 0)
+      i+=1
+      if(i%r==0):
+        bnd+=1
+        hash_str1=hash_str
+        hash_str=""
+        yield hash_str1+str(bnd),(words[0],str(xv))
 
-        yield words[0],i,sv
 
 
-
-def gen_hash_coeffs_1(num_buckets,num_bigrams,r,seed):
-    '''
-    Generate num_buckets hash functions
-    '''
-    coeff=[None]*r
-    bands=num_buckets/r
-    arr=[None]*bands
+def gen_hash_coeffs_1(num_buckets,num_bigrams,seed):
+    coeff=[0 for j in xrange(num_buckets)]
     for i in xrange(num_buckets):
+        #nRDD= RandomRDDs.normalRDD(sc, num_bigrams, seed=seed+i).map(lambda val: str(-1) if val < 0 else str(1)).collect()
+        #nRDD= RandomRDDs.uniformRDD(sc, num_bigrams,0,seed+i).map(lambda val: str(-1) if val <= 0.5 else str(1)).collect()
+        #Str to float
         nRDD= RandomRDDs.uniformRDD(sc, num_bigrams,0,seed+i).map(lambda val: float(-1) if val <= 0.5 else float(1)).collect()
         j=nRDD
-        idx= i%(bands)
-        arr[idx]=(idx+1,j)
-        if i%bands ==bands-1:
-            coeff[i/bands]=arr
-            arr=[None]*bands
+        coeff[i]=j
     return coeff
 
-
-def LSH(line,coeff):
-    import numpy as np
-    r=(coeff.value)[line[1]]
-    hash_str=''
-    for i in xrange(len(r)):
-        ##improved- This is best
-        '''
-        return the sign of the dot product of the vector and the random hyperplane
-        '''
-        hash_str=hash_str+str(1 if np.array((line[2].toArray())).dot(np.array(r[i][1])).sum() > 0 else 0)
-    return hash_str,(line[0],str(line[2]))
 
 def load_source_data():
     pipeline='[{"$unwind": "$sources"},{"$project":{"_id":0,"id":"$sources._id","val":{"$toLower":{"$concat":["$sources.first_name","$sources.middle_name","$sources.last_name",{"$substr":["$sources.gender",0,1]},"$sources.dob","$sources.address.street","$sources.address.city","$sources.address.state","$sources.address.zip","$sources.phone","$sources.email"]}}}}]'
 
-    source_df=spark.read.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://ec2-54-200-163-164.us-west-2.compute.amazonaws.com:27017/").option("database","single").option("collection","master").option("pipeline", pipeline).option("partitioner", "MongoSamplePartitioner").option("partitionSizeMB","1").option("readPreference.name","secondaryPreferred").load()
+    source_df=spark.read.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://34.223.248.161:27017/").option("database","Single").option("collection","master").option("pipeline", pipeline).option("partitioner", "MongoSamplePartitioner").option("partitionSizeMB","1").load()
 
     return source_df
 
@@ -113,43 +104,40 @@ def cosine_pre_process(line):
             ss=(s2.parse(line[1][j][1]))
             dotp=sf.dot(ss)
             rss=np.sqrt(sum(np.square(sf.values)))*np.sqrt(sum(np.square(ss.values)))
-            if dotp/rss > 0.75:
+            if dotp/rss > .60:
+                
                 if line[1][i][0] < line[1][j][0]:
                         yield line[1][i][0],line[1][j][0]
                 else:
                         yield line[1][j][0],line[1][i][0]
 
 
-def full_load_lsh(sc,spark,r,nbuckets,seed):
+def full_load_lsh(sc,spark,nbands,nbuckets,seed,outname):
 
-    num_rows=r
+    num_bands=nbands
     num_buckets=nbuckets
-    
-    coeffs=sc.broadcast(gen_hash_coeffs_1(num_buckets,1296,num_rows,seed))
+     #num_bands=5
+     #num_buckets=10
+    ##seed=1000
+    coeffs=sc.broadcast(gen_hash_coeffs_1(num_buckets,1296,500))
     source_df=load_source_data();
-    source_rdd=source_df.rdd.map(tuple)
-    '''
-    Apply hash functions to each document
-    and then calculate LSH 
-    followed by grouping by hash values
-    and filtering keys with no matches
-    '''
-    doc_vector=source_rdd.flatMap(lambda line: ngrams_min_hash(line,2,coeffs,num_rows)).map(lambda line:LSH(line,coeffs)).combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value).filter(lambda (x,y): len(y)>= 2)
+     #new_df=source_df.drop("_id")
+    #source_rdd=source_df.rdd.map(tuple)
+    source_rdd_1=source_df.rdd.map(tuple)
+     #source_rdd.partitionBy()
+    source_rdd=source_rdd_1.repartition(80)
+     ###Latest
+    
+    
+    #doc_vector1=doc_vector2.repartition(320)
+    
+    doc_vector=source_rdd.flatMap(lambda line: ngrams_min_hash(line,2,num_bands,coeffs)).combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value).filter(lambda (x,y): len(y)>= 2)
+    
     doc_vector.cache()
-    '''
-    call cosine similarity function here for each matching pair.
-    This portion can be further optimized by deduplicating first
-    '''
+     ##call cosine similarity function here
+    #x=doc_vector.flatMap(lambda line: cosine_pre_process(line)).reduceByKey(lambda x,y: x)
     x=doc_vector.flatMap(lambda line: cosine_pre_process(line)).distinct().combineByKey(lambda value:[value],lambda x,value:x+[value],lambda x,value:x+value)
-    '''
-    write back to mongo
-    '''
+    #print(x.take(100))
+    #x=doc_vector.flatMap(lambda line: cosine_pre_process_new(line)).count()
     write_df=spark.createDataFrame(x, ["f"])
-    write_df.write.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://ec2-54-200-163-164.us-west-2.compute.amazonaws.com:27017/").option("database","sparkt").option("collection","initial_load").mode("append").save()
-
-
-if __name__=="__main__":
-    conf = SparkConf().setAppName("LSH")
-    sc = SparkContext(conf=conf)
-    spark=SQLContext(sc)
-    full_load_lsh(sc,spark,40,800,500)
+    write_df.write.format("com.mongodb.spark.sql.DefaultSource").option("uri","mongodb://34.223.248.161:27017/").option("database","sparkc2").option("collection",outname).mode("append").save()
